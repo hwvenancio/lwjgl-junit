@@ -3,7 +3,10 @@ package org.cephalus.lwjgl.junit;
 import org.cephalus.lwjgl.*;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.RunRules;
+import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunNotifier;
@@ -15,6 +18,8 @@ import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 import org.lwjgl.opengl.PixelFormat;
 
+import javax.swing.plaf.nimbus.State;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,51 +51,79 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
 
     @Override
     protected void runChild(final FrameworkMethod testMethod, final RunNotifier notifier) {
-        CombinedConfiguration configuration = getConfiguration(testMethod);
-
         Description testDescription = describeChild(testMethod);
         try {
-            new Runner(notifier, configuration, getTestClass(), testMethod, testDescription).evaluate();
+            new Runner(notifier, getTestClass(), testMethod, testDescription).run();
         } catch (Throwable e) {
             notifier.fireTestFailure(new Failure(testDescription, e));
         }
     }
 
-    private CombinedConfiguration getConfiguration(final FrameworkMethod testMethod) {
-        Configuration defaultConfiguration = Runner.class.getAnnotation(Configuration.class);
-        return new CombinedConfiguration(defaultConfiguration, getTestClass(), testMethod);
-    }
-
-    @Configuration
-    private static class Runner extends Statement {
+    private static class Runner implements Runnable {
 
         private final RunNotifier notifier;
-        private final CombinedConfiguration config;
         private final TestClass testClass;
         private final FrameworkMethod testMethod;
         private final Description testDescription;
-        private final String title;
 
         private Object testInstance;
+
+        public Runner(RunNotifier notifier, TestClass testClass, FrameworkMethod testMethod, Description testDescription) {
+            this.notifier = notifier;
+            this.testClass = testClass;
+            this.testMethod = testMethod;
+            this.testDescription = testDescription;
+        }
+
+        @Override
+        public void run() {
+            try {
+                testInstance = testClass.getOnlyConstructor().newInstance();
+
+                Statement test = new LoopRunner(notifier, testClass, testMethod, testDescription, testInstance);
+                test = withRules(test);
+                test.evaluate();
+            } catch (Throwable ex) {
+                notifier.fireTestFailure(new Failure(testDescription, ex));
+            }
+        }
+
+        private Statement withRules(Statement base) {
+            List<TestRule> result = testClass.getAnnotatedFieldValues(testInstance, Rule.class, TestRule.class);
+            return new RunRules(base, result, testDescription);
+        }
+    }
+
+    @Configuration
+    private static class LoopRunner extends Statement {
+
+        private final RunNotifier notifier;
+        private final TestClass testClass;
+        private final FrameworkMethod testMethod;
+        private final Description testDescription;
+        private final Object testInstance;
+        private final String title;
+
+        private CombinedConfiguration config;
 
         private List<Throwable> errors = new ArrayList<>();
 
         private int iterations = 0;
 
-        public Runner(RunNotifier notifier, CombinedConfiguration config, TestClass testClass, FrameworkMethod testMethod, Description testDescription) throws InitializationError {
+        public LoopRunner(RunNotifier notifier, TestClass testClass, FrameworkMethod testMethod, Description testDescription, Object testInstance) throws InitializationError {
             this.notifier = notifier;
-            this.config = config;
             this.testClass = testClass;
             this.testMethod = testMethod;
             this.testDescription = testDescription;
+            this.testInstance = testInstance;
             this.title = testDescription.getMethodName();
         }
 
         @Override
         public void evaluate() throws ReflectiveOperationException, LWJGLException {
-            testInstance = testClass.getOnlyConstructor().newInstance();
-
             notifier.fireTestStarted(testDescription);
+
+            this.config = getConfiguration(testMethod);
 
             createWindow();
 
@@ -155,6 +188,11 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
                     Display.sync(config.fps);
                 }
             }
+        }
+
+        private CombinedConfiguration getConfiguration(final FrameworkMethod testMethod) {
+            Configuration defaultConfiguration = LoopRunner.class.getAnnotation(Configuration.class);
+            return new CombinedConfiguration(defaultConfiguration, testClass, testMethod);
         }
     }
 
