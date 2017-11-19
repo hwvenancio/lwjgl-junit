@@ -8,10 +8,7 @@ import org.junit.runner.Description;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.ParentRunner;
-import org.junit.runners.model.Annotatable;
-import org.junit.runners.model.FrameworkMethod;
-import org.junit.runners.model.InitializationError;
-import org.junit.runners.model.TestClass;
+import org.junit.runners.model.*;
 import org.lwjgl.LWJGLException;
 import org.lwjgl.opengl.ContextAttribs;
 import org.lwjgl.opengl.Display;
@@ -53,7 +50,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
 
         Description testDescription = describeChild(testMethod);
         try {
-            new Runner(notifier, configuration, getTestClass(), testMethod, testDescription).run();
+            new Runner(notifier, configuration, getTestClass(), testMethod, testDescription).evaluate();
         } catch (Throwable e) {
             notifier.fireTestFailure(new Failure(testDescription, e));
         }
@@ -65,7 +62,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
     }
 
     @Configuration
-    private static class Runner {
+    private static class Runner extends Statement {
 
         private final RunNotifier notifier;
         private final CombinedConfiguration config;
@@ -89,7 +86,8 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             this.title = testDescription.getMethodName();
         }
 
-        public void run() throws ReflectiveOperationException, LWJGLException {
+        @Override
+        public void evaluate() throws ReflectiveOperationException, LWJGLException {
             testInstance = testClass.getOnlyConstructor().newInstance();
 
             notifier.fireTestStarted(testDescription);
@@ -101,6 +99,10 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             runAfters();
 
             disposeWindow();
+
+            for(Throwable error : errors) {
+                notifier.fireTestFailure(new Failure(testDescription, error));
+            }
 
             notifier.fireTestFinished(testDescription);
         }
@@ -149,6 +151,9 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         public void runTest() {
             while (errors.isEmpty() && ++iterations <= config.iterations) {
                 invoke(testMethod);
+                if(config.fps > 0) {
+                    Display.sync(config.fps);
+                }
             }
         }
     }
