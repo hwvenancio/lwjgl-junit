@@ -23,7 +23,8 @@ public class Recorder {
 
     public Recorder(String testName) throws IOException {
         this.testName = testName;
-        File file = new File(testName + ".zip");
+        File file = new File("target/recorded-frames/" + testName + ".zip");
+        file.getParentFile().mkdirs();
         this.zip = new ZipOutputStream(new FileOutputStream(file));
     }
 
