@@ -1,6 +1,7 @@
 package org.cephalus.lwjgl.junit;
 
 import org.cephalus.lwjgl.*;
+import org.cephalus.lwjgl.Window;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -18,10 +19,23 @@ import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 import org.lwjgl.opengl.PixelFormat;
 
-import javax.swing.plaf.nimbus.State;
-import java.lang.reflect.InvocationTargetException;
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import static java.lang.Math.min;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 public class LwjglRunner extends ParentRunner<FrameworkMethod> {
 
@@ -103,6 +117,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         private final Description testDescription;
         private final Object testInstance;
         private final String title;
+        private final List<Class<? extends Throwable>> exceptions;
 
         private CombinedConfiguration config;
 
@@ -117,6 +132,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             this.testDescription = testDescription;
             this.testInstance = testInstance;
             this.title = testDescription.getMethodName();
+            this.exceptions = extractExpectedExceptions(testMethod);
         }
 
         @Override
@@ -126,15 +142,19 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             this.config = getConfiguration(testMethod);
 
             createWindow();
-
-            runBefores();
-            runTest();
-            runAfters();
-
-            disposeWindow();
+            try {
+                runBefores();
+                runTest();
+                runAfters();
+            } catch (Throwable error) {
+                errors.add(error);
+            } finally {
+                disposeWindow();
+            }
 
             for(Throwable error : errors) {
-                notifier.fireTestFailure(new Failure(testDescription, error));
+                if(!expectedException(error))
+                    notifier.fireTestFailure(new Failure(testDescription, error));
             }
 
             notifier.fireTestFinished(testDescription);
@@ -184,7 +204,8 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         public void runTest() {
             while (errors.isEmpty() && ++iterations <= config.iterations) {
                 invoke(testMethod);
-                if(config.fps > 0) {
+                compare();
+                if(config.fps > 0 && errors.isEmpty()) {
                     Display.sync(config.fps);
                 }
             }
@@ -194,6 +215,26 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             Configuration defaultConfiguration = LoopRunner.class.getAnnotation(Configuration.class);
             return new CombinedConfiguration(defaultConfiguration, testClass, testMethod);
         }
+
+        private boolean expectedException(Throwable error) {
+            for(Class<? extends Throwable> errorClass : exceptions)
+                if(errorClass.isInstance(error))
+                    return true;
+            return false;
+        }
+
+        private List<Class<? extends Throwable>> extractExpectedExceptions(FrameworkMethod testMethod) {
+            Test test = testMethod.getAnnotation(Test.class);
+            if(test == null || test.expected() == null || test.expected() == Test.None.class)
+                return Collections.emptyList();
+            return Collections.singletonList(test.expected());
+        }
+
+        private void compare() {
+            if(config.compare != null) {
+                config.compare.compareNext();
+            }
+        }
     }
 
     private static class CombinedConfiguration {
@@ -202,12 +243,14 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         private int height;
         private int fps;
         private int iterations;
+        private CombinedCompare compare;
 
-        public CombinedConfiguration(Configuration defaultConfiguration, TestClass testClass, Annotatable testMethod) {
+        public CombinedConfiguration(Configuration defaultConfiguration, TestClass testClass, FrameworkMethod testMethod) {
             apply(defaultConfiguration);
 
             applyAll(testClass);
             applyAll(testMethod);
+            compare = CombinedCompare.create(testClass, testMethod);
         }
 
         private void applyAll(Annotatable source) {
@@ -256,6 +299,134 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             if(annotation == null)
                 return;
             iterations = annotation.value();
+        }
+    }
+
+    private static class CombinedCompare {
+
+        private final Class<?> javaClass;
+        private final String methodName;
+
+        private String reference;
+        private float maxDivergence;
+
+        private ZipInputStream zip;
+
+        public CombinedCompare(Class<?> javaClass, String methodName) {
+            this.javaClass = javaClass;
+            this.methodName = methodName;
+        }
+
+        public static CombinedCompare create(TestClass testClass, FrameworkMethod testMethod) {
+            Compare methodCompare = testMethod.getAnnotation(Compare.class);
+            Compare classCompare = testClass.getAnnotation(Compare.class);
+
+            if(methodCompare == null && classCompare == null)
+                return null;
+
+            CombinedCompare instance = new CombinedCompare(testClass.getJavaClass(), testMethod.getName());
+            instance.apply(testMethod);
+            instance.apply(classCompare);
+            instance.apply(methodCompare);
+            instance.start();
+            return instance;
+        }
+
+        public void compareNext() {
+            try {
+                ZipEntry entry = zip.getNextEntry();
+                BufferedImage expected = ImageIO.read(zip);
+                BufferedImage actual = Recorder.takeSnapshot();
+                BufferedImage diff = getDifferenceImage(expected, actual);
+                float divergence = calculateDivergence(diff);
+                try {
+                    assertTrue(divergence <= maxDivergence);
+                } catch (AssertionError ex) {
+                    save(methodName, entry.getName(), diff);
+                    throw ex;
+                }
+            } catch (IOException ex) {
+                throw new UncheckedIOException(ex);
+            }
+        }
+
+        private void save(String methodName, String frameName, BufferedImage diff) throws IOException {
+            File file = new File("target/recorded-frames/diff_" + methodName + "_" + frameName);
+            file.getParentFile().mkdirs();
+            ImageIO.write(diff, "PNG", file);
+        }
+
+        private void start() {
+            URL resource = javaClass.getResource(reference + ".zip");
+            assertNotNull("Reference not found!", resource);
+            zip = new ZipInputStream(javaClass.getResourceAsStream(reference + ".zip"));
+        }
+
+        private void apply(FrameworkMethod method) {
+            if(reference == null || reference.isEmpty())
+                reference = method.getName();
+        }
+
+        private void apply(Compare compare) {
+            if(compare == null)
+                return;
+
+            if(compare.reference() != null && !compare.reference().isEmpty())
+                this.reference = compare.reference();
+            this.maxDivergence = compare.maxDivergence();
+        }
+
+        private static BufferedImage getDifferenceImage(BufferedImage img1, BufferedImage img2) {
+            int width1 = img1.getWidth(); // Change - getWidth() and getHeight() for BufferedImage
+            int width2 = img2.getWidth(); // take no arguments
+            int height1 = img1.getHeight();
+            int height2 = img2.getHeight();
+
+            assertEquals("Different dimensions", new Dimension(width1, height1), new Dimension(width2, height2));
+
+            BufferedImage outImg = new BufferedImage(width1, height1, BufferedImage.TYPE_INT_RGB);
+
+            for (int i = 0; i < height1; i++) {
+                for (int j = 0; j < width1; j++) {
+                    int rgb1 = img1.getRGB(j, i);
+                    int rgb2 = img2.getRGB(j, i);
+                    int r1 = (rgb1 >> 16) & 0xff;
+                    int g1 = (rgb1 >> 8) & 0xff;
+                    int b1 = (rgb1) & 0xff;
+                    int r2 = (rgb2 >> 16) & 0xff;
+                    int g2 = (rgb2 >> 8) & 0xff;
+                    int b2 = (rgb2) & 0xff;
+
+                    int r = Math.abs(r1 - r2);
+                    int g = Math.abs(g1 - g2);
+                    int b = Math.abs(b1 - b2);
+
+                    int result = (r << 16) | (g << 8) | b;
+                    outImg.setRGB(j, i, result);
+                }
+            }
+
+            return outImg;
+        }
+
+        private static float calculateDivergence(BufferedImage diff) {
+            int width = diff.getWidth();
+            int height = diff.getHeight();
+
+            long all = 0xFF * width * height;
+            long sum = 0;
+
+            for(int y = 0; y < height; ++y) {
+                for(int x = 0; x < width; ++x) {
+                    int rgb = diff.getRGB(x, y);
+                    int r = (rgb >> 16) & 0xff;
+                    int g = (rgb >> 8) & 0xff;
+                    int b = (rgb) & 0xff;
+                    sum += min(r + g + b, 0xFF);
+                }
+            }
+
+            return sum / (float) all;
         }
     }
 }

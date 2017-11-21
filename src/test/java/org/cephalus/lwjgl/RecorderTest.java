@@ -67,7 +67,7 @@ public class RecorderTest {
             assertNull("Extra frame " + i, zip.getNextEntry());
             zip.close();
         } finally {
-            zipFile.delete();
+            recorder.clear();
         }
     }
 
@@ -80,7 +80,7 @@ public class RecorderTest {
         glClearColor(r, g, b, a);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        recorder.takeSnapshot();
+        recorder.saveSnapshot();
 
         Display.swapBuffers();
         ++frame;
