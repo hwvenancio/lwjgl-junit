@@ -18,16 +18,30 @@ import static org.lwjgl.opengl.GL11.*;
 public class Recorder {
 
     private final ZipOutputStream zip;
+    private final File zipFile;
     private String testName;
     private int frame;
 
     public Recorder(String testName) throws IOException {
         this.testName = testName;
-        File file = new File(testName + ".zip");
-        this.zip = new ZipOutputStream(new FileOutputStream(file));
+        zipFile = new File("target/recorded-frames/" + testName + ".zip");
+        zipFile.getParentFile().mkdirs();
+        this.zip = new ZipOutputStream(new FileOutputStream(zipFile));
     }
 
-    public void takeSnapshot() throws IOException, LWJGLException {
+    public void saveSnapshot() throws IOException, LWJGLException {
+        BufferedImage image = takeSnapshot();
+
+        String name = String.format(testName + "_%04d.png", ++frame);
+        ZipEntry snapshot = new ZipEntry(name);
+
+        String format = "PNG";
+
+        zip.putNextEntry(snapshot);
+        ImageIO.write(image, format, zip);
+    }
+
+    public static BufferedImage takeSnapshot() {
         glFlush();
         glFinish();
         glReadBuffer(GL_BACK);
@@ -37,10 +51,6 @@ public class Recorder {
         ByteBuffer buffer = BufferUtils.createByteBuffer(width * height * bpp);
         glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
 
-        String name = String.format(testName + "_%04d.png", ++frame);
-        ZipEntry snapshot = new ZipEntry(name);
-
-        String format = "PNG";
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         for(int x = 0; x < width; x++)
         {
@@ -53,13 +63,15 @@ public class Recorder {
                 image.setRGB(x, height - (y + 1), (0xFF << 24) | (r << 16) | (g << 8) | b);
             }
         }
-
-        zip.putNextEntry(snapshot);
-        ImageIO.write(image, format, zip);
+        return image;
     }
 
     public void close() throws IOException {
         zip.flush();
         zip.close();
+    }
+
+    public void clear() {
+        zipFile.delete();
     }
 }
