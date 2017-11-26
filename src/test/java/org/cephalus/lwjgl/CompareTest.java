@@ -7,7 +7,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.LWJGLException;
-import org.lwjgl.opengl.Display;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,6 +14,7 @@ import java.nio.FloatBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
+import static org.cephalus.lwjgl.Swap.Type.AUTO;
 import static org.lwjgl.opengl.GL11.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11.GL_FALSE;
@@ -53,6 +53,8 @@ import static org.lwjgl.opengl.GL30.glDeleteVertexArrays;
 import static org.lwjgl.opengl.GL30.glGenVertexArrays;
 
 @RunWith(LwjglRunner.class)
+@Iterations(1)
+@Swap(AUTO)
 public class CompareTest {
 
     private int vs;
@@ -135,7 +137,6 @@ public class CompareTest {
     }
 
     @Test
-    @Iterations(1)
     @Compare
     public void triangle() throws LWJGLException, IOException {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -144,12 +145,9 @@ public class CompareTest {
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0);
         glUseProgram(0);
-
-        Display.swapBuffers();
     }
 
     @Test(expected = AssertionError.class)
-    @Iterations(1)
     @Compare(reference = "triangle")
     public void differentTriangle() throws LWJGLException, IOException {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -158,8 +156,6 @@ public class CompareTest {
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glBindVertexArray(0);
         glUseProgram(0);
-
-        Display.swapBuffers();
     }
 
     private static int loadShader(String resource, int type) {

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import static org.cephalus.lwjgl.Swap.Type.MANUAL;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -72,6 +73,7 @@ public class RecorderTest {
     }
 
     @Test
+    @Swap(MANUAL)
     public void record() throws IOException, LWJGLException {
         float r = (max - frame) / den;
         float g = frame / den;

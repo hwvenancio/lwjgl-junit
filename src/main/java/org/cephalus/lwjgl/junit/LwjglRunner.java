@@ -33,6 +33,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import static java.lang.Math.min;
+import static org.cephalus.lwjgl.Swap.Type.AUTO;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -201,10 +202,12 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             invokeAll(afters);
         }
 
-        public void runTest() {
+        public void runTest() throws LWJGLException {
             while (errors.isEmpty() && ++iterations <= config.iterations) {
                 invoke(testMethod);
                 compare();
+                if(config.swap)
+                    Display.swapBuffers();
                 if(config.fps > 0 && errors.isEmpty()) {
                     Display.sync(config.fps);
                 }
@@ -243,6 +246,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         private int height;
         private int fps;
         private int iterations;
+        private boolean swap;
         private CombinedCompare compare;
 
         public CombinedConfiguration(Configuration defaultConfiguration, TestClass testClass, FrameworkMethod testMethod) {
@@ -264,6 +268,8 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             apply(fps);
             Iterations iterations = source.getAnnotation(Iterations.class);
             apply(iterations);
+            Swap swap = source.getAnnotation(Swap.class);
+            apply(swap);
         }
 
         private void apply(Configuration configuration) {
@@ -274,6 +280,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             height = configuration.height();
             fps = configuration.fps();
             iterations = configuration.iterations();
+            swap = configuration.swap() == AUTO;
         }
 
         private void apply(Profile annotation) {
@@ -299,6 +306,12 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             if(annotation == null)
                 return;
             iterations = annotation.value();
+        }
+
+        private void apply(Swap annotation) {
+            if(annotation == null)
+                return;
+            swap = annotation.value() == AUTO;
         }
     }
 
