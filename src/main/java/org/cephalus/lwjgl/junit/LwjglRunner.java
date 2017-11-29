@@ -156,6 +156,11 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
                 if(!expectedException(error))
                     notifier.fireTestFailure(new Failure(testDescription, error));
             }
+            for(Class<? extends Throwable> expected : exceptions) {
+                if(errors.stream().noneMatch(error -> expected.isInstance(error)))
+                    notifier.fireTestFailure(new Failure(testDescription
+                            , new AssertionError("Expected exception: " + expected.getName())));
+            }
 
             notifier.fireTestFinished(testDescription);
         }
