@@ -1,9 +1,16 @@
 package org.cephalus.lwjgl.junit;
 
-import org.cephalus.lwjgl.*;
+import org.cephalus.lwjgl.Compare;
+import org.cephalus.lwjgl.Configuration;
+import org.cephalus.lwjgl.Fps;
+import org.cephalus.lwjgl.Iterations;
+import org.cephalus.lwjgl.Profile;
+import org.cephalus.lwjgl.Recorder;
+import org.cephalus.lwjgl.Swap;
 import org.cephalus.lwjgl.Window;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.RunRules;
@@ -12,7 +19,11 @@ import org.junit.runner.Description;
 import org.junit.runner.notification.Failure;
 import org.junit.runner.notification.RunNotifier;
 import org.junit.runners.ParentRunner;
-import org.junit.runners.model.*;
+import org.junit.runners.model.Annotatable;
+import org.junit.runners.model.FrameworkMethod;
+import org.junit.runners.model.InitializationError;
+import org.junit.runners.model.Statement;
+import org.junit.runners.model.TestClass;
 import org.lwjgl.LWJGLException;
 import org.lwjgl.opengl.ContextAttribs;
 import org.lwjgl.opengl.Display;
@@ -44,16 +55,6 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
     }
 
     @Override
-    public Description getDescription() {
-        Description description = Description.createSuiteDescription(getTestClass().getName());
-        List<FrameworkMethod> testMethods = getTestClass().getAnnotatedMethods(Test.class);
-        for(FrameworkMethod testMethod : testMethods) {
-            description.addChild(Description.createTestDescription(getTestClass().getName(), testMethod.getName()));
-        }
-        return description;
-    }
-
-    @Override
     protected List<FrameworkMethod> getChildren() {
         return getTestClass().getAnnotatedMethods(Test.class);
     }
@@ -64,12 +65,21 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
     }
 
     @Override
+    protected boolean isIgnored(FrameworkMethod testMethod) {
+        return testMethod.getAnnotation(Ignore.class) != null;
+    }
+
+    @Override
     protected void runChild(final FrameworkMethod testMethod, final RunNotifier notifier) {
         Description testDescription = describeChild(testMethod);
-        try {
-            new Runner(notifier, getTestClass(), testMethod, testDescription).run();
-        } catch (Throwable e) {
-            notifier.fireTestFailure(new Failure(testDescription, e));
+        if (isIgnored(testMethod)) {
+            notifier.fireTestIgnored(testDescription);
+        } else {
+            try {
+                new Runner(notifier, getTestClass(), testMethod, testDescription).run();
+            } catch (Throwable e) {
+                notifier.fireTestFailure(new Failure(testDescription, e));
+            }
         }
     }
 
@@ -125,7 +135,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
 
         private int iterations = 0;
 
-        public LoopRunner(RunNotifier notifier, TestClass testClass, FrameworkMethod testMethod, Description testDescription, Object testInstance) throws InitializationError {
+        public LoopRunner(RunNotifier notifier, TestClass testClass, FrameworkMethod testMethod, Description testDescription, Object testInstance) {
             this.notifier = notifier;
             this.testClass = testClass;
             this.testMethod = testMethod;
@@ -136,7 +146,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
         }
 
         @Override
-        public void evaluate() throws ReflectiveOperationException, LWJGLException {
+        public void evaluate() throws LWJGLException {
             notifier.fireTestStarted(testDescription);
 
             this.config = getConfiguration(testMethod);
