@@ -162,14 +162,14 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
                 disposeWindow();
             }
 
-            for(Throwable error : errors) {
-                if(!expectedException(error))
-                    notifier.fireTestFailure(new Failure(testDescription, error));
-            }
-            for(Class<? extends Throwable> expected : exceptions) {
-                if(errors.stream().noneMatch(error -> expected.isInstance(error)))
-                    notifier.fireTestFailure(new Failure(testDescription
-                            , new AssertionError("Expected exception: " + expected.getName())));
+            if(!exceptions.isEmpty() && errors.isEmpty()){
+                notifier.fireTestFailure(new Failure(testDescription, new AssertionError("Expected exception: "
+                        + exceptions.get(0).getName())));
+            } else {
+                for (Throwable error : errors) {
+                    if (!expectedException(error))
+                        notifier.fireTestFailure(new Failure(testDescription, error));
+                }
             }
 
             notifier.fireTestFinished(testDescription);
@@ -242,7 +242,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
 
         private List<Class<? extends Throwable>> extractExpectedExceptions(FrameworkMethod testMethod) {
             Test test = testMethod.getAnnotation(Test.class);
-            if(test == null || test.expected() == null || test.expected() == Test.None.class)
+            if(test == null || test.expected() == Test.None.class)
                 return Collections.emptyList();
             return Collections.singletonList(test.expected());
         }
@@ -398,7 +398,7 @@ public class LwjglRunner extends ParentRunner<FrameworkMethod> {
             if(compare == null)
                 return;
 
-            if(compare.reference() != null && !compare.reference().isEmpty())
+            if(!compare.reference().isEmpty())
                 this.reference = compare.reference();
             this.maxDivergence = compare.maxDivergence();
         }

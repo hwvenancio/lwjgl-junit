@@ -12,8 +12,10 @@ import org.junit.internal.requests.FilterRequest;
 import org.junit.runner.Description;
 import org.junit.runner.JUnitCore;
 import org.junit.runner.Request;
+import org.junit.runner.Result;
 import org.junit.runner.RunWith;
 import org.junit.runner.manipulation.Filter;
+import org.junit.runner.notification.Failure;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,9 +30,9 @@ public class LwjglRunnerTest {
 
     @Test
     public void fullyAnnotated() {
-        List<String> methodList = runTestClass(FullyAnnotatedTest.class);
+        TestRun run = runTestClass(FullyAnnotatedTest.class);
 
-        assertThat(methodList)
+        assertThat(run.methods)
                 .containsExactly("beforeClass", "before", "test1", "after", "before", "test2", "after", "afterClass");
     }
 
@@ -48,33 +50,48 @@ public class LwjglRunnerTest {
             }
         };
 
-        List<String> methodList = runTestClass(FullyAnnotatedTest.class, filter);
+        TestRun run = runTestClass(FullyAnnotatedTest.class, filter);
 
-        assertThat(methodList)
+        assertThat(run.methods)
                 .containsExactly("beforeClass", "before", "test2", "after", "afterClass");
     }
 
     @Test
     public void classIgnored() {
-        List<String> methodList = runTestClass(ClassIgnoredTest.class);
+        TestRun run = runTestClass(ClassIgnoredTest.class);
 
-        assertThat(methodList)
+        assertThat(run.methods)
                 .isEmpty();
     }
 
     @Test
     public void singleIgnored() {
-        List<String> methodList = runTestClass(SingleIgnoredTest.class);
+        TestRun run = runTestClass(SingleIgnoredTest.class);
 
-        assertThat(methodList)
+        assertThat(run.methods)
                 .containsExactly("beforeClass", "before", "test1", "after", "afterClass");
     }
 
-    private static List<String> runTestClass(Class<?> testClass) {
+    @Test
+    public void exceptions() {
+        TestRun run = runTestClass(ExceptionTest.class);
+
+        assertThat(run.result.getFailures())
+                .hasSize(2);
+        assertThat(run.result.getFailures())
+                .extracting(f -> f.getDescription().getMethodName())
+                .contains("test1", "test3");
+        assertThat(run.result.getFailures())
+                .extracting(Failure::getException)
+                .hasAtLeastOneElementOfType(RuntimeException.class)
+                .hasAtLeastOneElementOfType(AssertionError.class);
+    }
+
+    private static TestRun runTestClass(Class<?> testClass) {
         return runTestClass(testClass, null);
     }
 
-    private static synchronized List<String> runTestClass(Class<?> testClass, Filter filter) {
+    private static synchronized TestRun runTestClass(Class<?> testClass, Filter filter) {
         methodCalls.put(testClass, new ArrayList<>());
 
         JUnitCore junit = new JUnitCore();
@@ -83,9 +100,19 @@ public class LwjglRunnerTest {
         if(filter != null)
             request = new FilterRequest(request, filter);
 
-        junit.run(request);
+        Result result = junit.run(request);
 
-        return methodCalls.remove(testClass);
+        return new TestRun(result, methodCalls.remove(testClass));
+    }
+
+    public static class TestRun {
+        public final Result result;
+        public final List<String> methods;
+
+        public TestRun(Result result, List<String> methods) {
+            this.result = result;
+            this.methods = methods;
+        }
     }
 
     @RunWith(LwjglRunner.class)
@@ -204,6 +231,52 @@ public class LwjglRunnerTest {
         @Ignore
         public void test2() {
             add("test2");
+        }
+    }
+
+    @RunWith(LwjglRunner.class)
+    @Iterations(1)
+    public static class ExceptionTest {
+
+        private static void add(String methodName) {
+            methodCalls.get(ExceptionTest.class).add(methodName);
+        }
+
+        @BeforeClass
+        public static void beforeClass() {
+            add("beforeClass");
+        }
+
+        @AfterClass
+        public static void afterClass() {
+            add("afterClass");
+        }
+
+        @Before
+        public void before() {
+            add("before");
+        }
+
+        @After
+        public void after() {
+            add("after");
+        }
+
+        @Test(expected = RuntimeException.class)
+        public void test1() {
+            add("test1");
+        }
+
+        @Test(expected = RuntimeException.class)
+        public void test2() {
+            add("test2");
+            throw new RuntimeException();
+        }
+
+        @Test
+        public void test3() {
+            add("test3");
+            throw new RuntimeException();
         }
     }
 }
